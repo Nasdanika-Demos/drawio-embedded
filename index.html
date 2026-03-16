@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Draw.io Embedded Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #16213e;
+      color: #e0e0e0;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+      flex-shrink: 0;
+    }
+    header svg { width: 28px; height: 28px; flex-shrink: 0; }
+    header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: 0.02em; }
+    header p  { font-size: 0.75rem; color: #888; margin-top: 1px; }
+    .status-pill {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: #aaa;
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #555;
+      transition: background 0.3s;
+    }
+    .status-dot.ready  { background: #4caf50; }
+    .status-dot.busy   { background: #ff9800; animation: pulse 1s infinite; }
+    .status-dot.error  { background: #f44336; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ── Main layout ── */
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      gap: 0;
+    }
+
+    /* ── Draw.io iframe ── */
+    .editor-pane {
+      flex: 1;
+      background: #fff;
+      position: relative;
+    }
+    #drawio-frame {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+    .editor-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.85);
+      flex-direction: column;
+      gap: 12px;
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+    .editor-overlay.hidden { opacity: 0; }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #ddd;
+      border-top-color: #1976d2;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Side panel ── */
+    .side-panel {
+      width: 320px;
+      flex-shrink: 0;
+      background: #fff;
+      border-left: 1px solid #dde1e7;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-section {
+      padding: 14px 16px;
+      border-bottom: 1px solid #eef0f3;
+    }
+    .panel-section:last-child { border-bottom: none; flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+    .section-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #888;
+      margin-bottom: 10px;
+    }
+
+    /* ── Selection info ── */
+    #selection-info {
+      background: #f7f8fa;
+      border: 1px solid #e0e4ea;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 0.8rem;
+      min-height: 64px;
+      line-height: 1.6;
+      color: #555;
+      word-break: break-word;
+    }
+    #selection-info.has-data { color: #1a1a2e; }
+    #selection-info .empty-hint { color: #aaa; font-style: italic; }
+
+    .cell-card {
+      background: #fff;
+      border: 1px solid #dde1e7;
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      font-size: 0.78rem;
+    }
+    .cell-card:last-child { margin-bottom: 0; }
+    .cell-card .cell-label {
+      font-weight: 600;
+      color: #1976d2;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .cell-tag {
+      font-size: 0.65rem;
+      background: #e3f2fd;
+      color: #1565c0;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-weight: 500;
+    }
+    .cell-attr { color: #666; }
+    .cell-attr span { color: #333; font-weight: 500; }
+
+    /* ── Log ── */
+    #event-log {
+      flex: 1;
+      overflow-y: auto;
+      background: #1a1a2e;
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 0.72rem;
+      font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+      color: #c9d1d9;
+    }
+    .log-entry { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .log-ts    { color: #555; margin-right: 6px; }
+    .log-event { color: #79c0ff; }
+    .log-data  { color: #a5d6a7; }
+    .log-cmd   { color: #ffd700; }
+    .log-error { color: #f97583; }
+    .log-info  { color: #d2a8ff; }
+
+    /* ── Controls ── */
+    .controls { display: flex; flex-direction: column; gap: 8px; }
+    .controls-row { display: flex; gap: 8px; }
+
+    button {
+      flex: 1;
+      padding: 8px 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      letter-spacing: 0.01em;
+    }
+    button:active { transform: scale(0.97); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .btn-primary   { background: #1976d2; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #1565c0; }
+    .btn-secondary { background: #e8eaf6; color: #3949ab; }
+    .btn-secondary:hover:not(:disabled) { background: #dde0f5; }
+    .btn-success   { background: #2e7d32; color: #fff; }
+    .btn-success:hover:not(:disabled) { background: #1b5e20; }
+    .btn-warn      { background: #f57f17; color: #fff; }
+    .btn-warn:hover:not(:disabled)    { background: #e65100; }
+    .btn-danger    { background: #c62828; color: #fff; }
+    .btn-danger:hover:not(:disabled)  { background: #b71c1c; }
+
+    label {
+      font-size: 0.75rem;
+      color: #666;
+      display: block;
+      margin-bottom: 4px;
+    }
+    textarea {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #dde1e7;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-family: "Fira Code", Consolas, monospace;
+      resize: vertical;
+      color: #333;
+      background: #f7f8fa;
+    }
+    textarea:focus { outline: none; border-color: #1976d2; background: #fff; }
+    select {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #dde1e7;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      color: #333;
+      background: #f7f8fa;
+      cursor: pointer;
+    }
+    select:focus { outline: none; border-color: #1976d2; }
+  </style>
+</head>
+<body>
+
+<!-- ══ HEADER ══════════════════════════════════════════════════════════════ -->
+<header>
+  <svg viewBox="0 0 24 24" fill="none" stroke="#4fc3f7" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1"/>
+    <rect x="14" y="3" width="7" height="7" rx="1"/>
+    <rect x="3" y="14" width="7" height="7" rx="1"/>
+    <rect x="14" y="14" width="7" height="7" rx="1"/>
+  </svg>
+  <div>
+    <h1>Draw.io Embedded Demo</h1>
+    <p>Bidirectional communication between embedded editor and host page</p>
+  </div>
+  <div class="status-pill">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-label">Connecting…</span>
+  </div>
+</header>
+
+<!-- ══ MAIN ════════════════════════════════════════════════════════════════ -->
+<div class="main">
+
+  <!-- Draw.io iframe -->
+  <div class="editor-pane">
+    <iframe id="drawio-frame"
+            src="https://embed.diagrams.net/?embed=1&ui=min&spin=1&proto=json&libraries=1"
+            allow="clipboard-read; clipboard-write"
+            title="Draw.io Editor">
+    </iframe>
+    <div class="editor-overlay" id="editor-overlay">
+      <div class="spinner"></div>
+      <span style="font-size:0.85rem;color:#888">Loading editor…</span>
+    </div>
+  </div>
+
+  <!-- Side panel -->
+  <div class="side-panel">
+
+    <!-- Selection info -->
+    <div class="panel-section">
+      <div class="section-title">📌 Selection Info</div>
+      <div id="selection-info">
+        <span class="empty-hint">Select a shape in the diagram to see its details here.</span>
+      </div>
+    </div>
+
+    <!-- Commands -->
+    <div class="panel-section">
+      <div class="section-title">⚡ Commands → Editor</div>
+      <div class="controls">
+        <div class="controls-row">
+          <button class="btn-primary"  id="btn-load-sample"  disabled>Load Sample</button>
+          <button class="btn-secondary" id="btn-export-xml"  disabled>Export XML</button>
+        </div>
+        <div class="controls-row">
+          <button class="btn-success" id="btn-highlight-sel" disabled>Highlight Selected</button>
+          <button class="btn-warn"    id="btn-reset-style"   disabled>Reset Style</button>
+        </div>
+        <div>
+          <label for="label-input">Update label of selected cell:</label>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="label-input"
+                   placeholder="New label…"
+                   style="flex:1;padding:6px 8px;border:1px solid #dde1e7;
+                          border-radius:6px;font-size:0.78rem;background:#f7f8fa;color:#333;"
+                   disabled />
+            <button class="btn-primary" id="btn-set-label" disabled
+                    style="flex:0;white-space:nowrap;">Set</button>
+          </div>
+        </div>
+        <div>
+          <label for="load-xml-area">Load custom XML into the editor:</label>
+          <textarea id="load-xml-area" rows="4"
+                    placeholder="Paste mxGraph XML here…" disabled></textarea>
+          <div style="margin-top:6px">
+            <button class="btn-danger" id="btn-load-custom" disabled>Load XML</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Event log -->
+    <div class="panel-section">
+      <div class="section-title">📋 Event Log</div>
+      <div id="event-log"></div>
+    </div>
+
+  </div><!-- /side-panel -->
+</div><!-- /main -->
+
+<!-- ══ SCRIPT ══════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  "use strict";
+
+  /* ── References ───────────────────────────────────────────────────────── */
+  const frame        = document.getElementById("drawio-frame");
+  const overlay      = document.getElementById("editor-overlay");
+  const statusDot    = document.getElementById("status-dot");
+  const statusLabel  = document.getElementById("status-label");
+  const selInfo      = document.getElementById("selection-info");
+  const eventLog     = document.getElementById("event-log");
+  const labelInput   = document.getElementById("label-input");
+  const loadXmlArea  = document.getElementById("load-xml-area");
+
+  /* ── State ─────────────────────────────────────────────────────────────── */
+  let editorReady         = false;
+  let selectedCells       = [];    // currently selected cell descriptors
+  let lastExportedXml     = "";
+  let pendingExportCallback = null; // called once with XML when next export arrives
+
+  /* ── Constants ──────────────────────────────────────────────────────────── */
+  const EDITOR_ORIGIN   = "https://embed.diagrams.net";
+  const LOG_MAX_ENTRIES = 200;
+  const LOG_TRUNCATE_AT = 120;
+  const INIT_TIMEOUT_MS = 20000;
+
+  /* ── Sample diagram XML ─────────────────────────────────────────────────
+   *  A simple system‑context diagram with custom metadata attributes.
+   * ──────────────────────────────────────────────────────────────────────── */
+  const SAMPLE_XML = `<mxGraphModel>
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+
+    <!-- User actor -->
+    <mxCell id="user" value="User" style="shape=mxgraph.basic.person;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;" vertex="1" parent="1" nasdanika:role="actor" nasdanika:description="External user of the system">
+      <mxGeometry x="60" y="200" width="60" height="80" as="geometry"/>
+    </mxCell>
+
+    <!-- Web App -->
+    <mxCell id="webapp" value="Web Application" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="1" nasdanika:type="component" nasdanika:team="frontend" nasdanika:version="2.4.1">
+      <mxGeometry x="220" y="180" width="150" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- API Gateway -->
+    <mxCell id="api" value="API Gateway" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" vertex="1" parent="1" nasdanika:type="service" nasdanika:team="platform" nasdanika:version="1.9.0">
+      <mxGeometry x="460" y="180" width="150" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- Database -->
+    <mxCell id="db" value="Database" style="shape=mxgraph.flowchart.database;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;" vertex="1" parent="1" nasdanika:type="storage" nasdanika:team="data" nasdanika:engine="PostgreSQL">
+      <mxGeometry x="460" y="340" width="150" height="80" as="geometry"/>
+    </mxCell>
+
+    <!-- Auth Service -->
+    <mxCell id="auth" value="Auth Service" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;" vertex="1" parent="1" nasdanika:type="service" nasdanika:team="security" nasdanika:version="3.1.2">
+      <mxGeometry x="220" y="340" width="150" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- Edges -->
+    <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="user"   target="webapp" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="webapp" target="api"    parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="api"    target="db"     parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="webapp" target="auth"   parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+  </root>
+</mxGraphModel>`;
+
+  /* ── Utility: setStatus ─────────────────────────────────────────────────── */
+  function setStatus(state, label) {
+    statusDot.className = "status-dot " + state;
+    statusLabel.textContent = label;
+  }
+
+  /* ── Utility: setEditorEnabled ──────────────────────────────────────────── */
+  function setEditorEnabled(enabled) {
+    document.querySelectorAll("button, input, textarea, select").forEach(el => {
+      el.disabled = !enabled;
+    });
+  }
+
+  /* ── Utility: appendLog ─────────────────────────────────────────────────── */
+  function appendLog(type, text) {
+    const ts   = new Date().toLocaleTimeString(navigator.language, { hour12: false });
+    const entry = document.createElement("div");
+    entry.className = "log-entry";
+    entry.innerHTML =
+      `<span class="log-ts">${ts}</span>` +
+      `<span class="log-${type}">${escapeHtml(text)}</span>`;
+    eventLog.appendChild(entry);
+    eventLog.scrollTop = eventLog.scrollHeight;
+    // keep at most LOG_MAX_ENTRIES entries
+    while (eventLog.children.length > LOG_MAX_ENTRIES) eventLog.removeChild(eventLog.firstChild);
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  /* ── Utility: sendToEditor ──────────────────────────────────────────────── */
+  function sendToEditor(msg) {
+    if (!editorReady) { appendLog("error", "Editor not ready – command dropped"); return; }
+    const json = JSON.stringify(msg);
+    appendLog("cmd", "→ " + json.slice(0, LOG_TRUNCATE_AT) + (json.length > LOG_TRUNCATE_AT ? "…" : ""));
+    frame.contentWindow.postMessage(json, EDITOR_ORIGIN);
+  }
+
+  /* ── Render selection info ──────────────────────────────────────────────── */
+  function renderSelection(cells) {
+    if (!cells || cells.length === 0) {
+      selInfo.className = "";
+      selInfo.innerHTML = `<span class="empty-hint">No selection — click a shape in the diagram.</span>`;
+      return;
+    }
+
+    selInfo.className = "has-data";
+
+    const cards = cells.map(cell => {
+      const label = cell.value || cell.id || "(unlabelled)";
+      const isEdge = cell.edge === "1" || cell.edge === 1;
+      const tag = isEdge ? "edge" : "vertex";
+
+      // Collect custom nasdanika:* attributes
+      const attrs = Object.entries(cell)
+        .filter(([k]) => k.startsWith("nasdanika:") || ["id","style","source","target"].includes(k))
+        .map(([k, v]) => `<div class="cell-attr">${escapeHtml(k)}: <span>${escapeHtml(String(v))}</span></div>`)
+        .join("");
+
+      return `<div class="cell-card">
+        <div class="cell-label">
+          ${escapeHtml(label)}
+          <span class="cell-tag">${tag}</span>
+        </div>
+        ${attrs || '<div class="cell-attr" style="color:#aaa;font-style:italic">No extra attributes</div>'}
+      </div>`;
+    }).join("");
+
+    selInfo.innerHTML = cards;
+  }
+
+  /* ── Handle incoming messages from draw.io ──────────────────────────────── */
+  window.addEventListener("message", function (evt) {
+    if (!evt.data) return;
+
+    let msg;
+    try { msg = JSON.parse(evt.data); }
+    catch { return; }
+
+    // Only process messages from our iframe with the expected origin
+    if (evt.source !== frame.contentWindow) return;
+    if (evt.origin !== EDITOR_ORIGIN) return;
+
+    appendLog("event", "← " + JSON.stringify(msg).slice(0, LOG_TRUNCATE_AT));
+
+    switch (msg.event) {
+
+      /* Editor has initialised → send the sample diagram */
+      case "init":
+        editorReady = true;
+        overlay.classList.add("hidden");
+        setStatus("ready", "Editor ready");
+        setEditorEnabled(true);
+        appendLog("info", "Editor initialised — loading sample diagram");
+        sendToEditor({ action: "load", xml: SAMPLE_XML });
+        break;
+
+      /* User changed the selection */
+      case "selectionChanged":
+        selectedCells = msg.cells || [];
+        renderSelection(selectedCells);
+        appendLog("event", `selectionChanged: ${selectedCells.length} cell(s)`);
+        break;
+
+      /* Diagram was auto-saved (any edit) */
+      case "autosave":
+        appendLog("event", "autosave — diagram was modified");
+        break;
+
+      /* Response to an export command */
+      case "export":
+        lastExportedXml = msg.xml || msg.data || "";
+        loadXmlArea.value = lastExportedXml;
+        appendLog("info", `export received (${lastExportedXml.length} chars)`);
+        // Fire any pending callback (used by highlight/reset/label operations)
+        if (pendingExportCallback) {
+          const cb = pendingExportCallback;
+          pendingExportCallback = null;
+          cb(lastExportedXml);
+        }
+        break;
+
+      /* Editor is ready to receive configuration */
+      case "configure":
+        sendToEditor({ action: "configure", config: {} });
+        break;
+
+      default:
+        break;
+    }
+  });
+
+  /* ── XML helpers ────────────────────────────────────────────────────────── */
+
+  /**
+   * Parse the diagram XML, apply a patch function to each target mxCell,
+   * then serialise back.  The patch receives the DOM element and can call
+   * setAttribute / removeAttribute on it.
+   */
+  function patchXml(xml, cellIds, patchFn) {
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    const cells = doc.querySelectorAll("mxCell");
+    cells.forEach(function (el) {
+      if (cellIds.includes(el.getAttribute("id"))) patchFn(el);
+    });
+    return new XMLSerializer().serializeToString(doc);
+  }
+
+  /**
+   * Export the current diagram XML, run patchFn on it, then reload.
+   * Any previously pending callback is replaced (last-write-wins).
+   */
+  function exportPatchReload(cellIds, patchFn, logMsg) {
+    if (cellIds.length === 0) { appendLog("error", "No cells selected — select a shape first"); return; }
+    pendingExportCallback = function (xml) {
+      const updated = patchXml(xml, cellIds, patchFn);
+      sendToEditor({ action: "load", xml: updated });
+      appendLog("cmd", logMsg);
+    };
+    sendToEditor({ action: "export", format: "xml" });
+  }
+
+  /* ── Button: Load Sample ─────────────────────────────────────────────────── */
+  document.getElementById("btn-load-sample").addEventListener("click", function () {
+    sendToEditor({ action: "load", xml: SAMPLE_XML });
+    appendLog("info", "Sample diagram loaded");
+  });
+
+  /* ── Button: Export XML ──────────────────────────────────────────────────── */
+  document.getElementById("btn-export-xml").addEventListener("click", function () {
+    sendToEditor({ action: "export", format: "xml" });
+  });
+
+  /* ── Button: Highlight Selected ──────────────────────────────────────────── */
+  document.getElementById("btn-highlight-sel").addEventListener("click", function () {
+    const cells = selectedCells.slice();
+    exportPatchReload(
+      cells.map(c => c.id),
+      function (el) {
+        const isEdge = el.getAttribute("edge") === "1";
+        el.setAttribute("style",
+          isEdge
+            ? "strokeColor=#ff6600;strokeWidth=3;"
+            : "fillColor=#ffeb3b;strokeColor=#f57f17;strokeWidth=2;fontStyle=1;"
+        );
+      },
+      "highlight applied to: " + cells.map(c => c.id).join(", ")
+    );
+  });
+
+  /* ── Button: Reset Style ─────────────────────────────────────────────────── */
+  document.getElementById("btn-reset-style").addEventListener("click", function () {
+    const cells = selectedCells.slice();
+    exportPatchReload(
+      cells.map(c => c.id),
+      function (el) { el.removeAttribute("style"); },
+      "style reset for: " + cells.map(c => c.id).join(", ")
+    );
+  });
+
+  /* ── Button: Set Label ───────────────────────────────────────────────────── */
+  document.getElementById("btn-set-label").addEventListener("click", function () {
+    const newLabel = labelInput.value.trim();
+    if (!newLabel) { appendLog("error", "Label text is empty"); return; }
+    const cells = selectedCells.slice();
+    if (cells.length === 0) { appendLog("error", "No cells selected"); return; }
+
+    exportPatchReload(
+      cells.map(c => c.id),
+      function (el) { el.setAttribute("value", newLabel); },
+      `label set to "${newLabel}" for: ` + cells.map(c => c.id).join(", ")
+    );
+    labelInput.value = "";
+  });
+
+  /* ── Button: Load Custom XML ─────────────────────────────────────────────── */
+  document.getElementById("btn-load-custom").addEventListener("click", function () {
+    const xml = loadXmlArea.value.trim();
+    if (!xml) { appendLog("error", "XML area is empty — paste XML first or click Export XML"); return; }
+    sendToEditor({ action: "load", xml });
+    appendLog("info", "Custom XML loaded into editor");
+  });
+
+  /* ── Initial state ───────────────────────────────────────────────────────── */
+  setStatus("busy", "Connecting…");
+  setEditorEnabled(false);
+
+  // Safety timeout: if no init event after INIT_TIMEOUT_MS show an error
+  setTimeout(function () {
+    if (!editorReady) {
+      setStatus("error", "Load failed");
+      overlay.innerHTML = `<div style="color:#c62828;font-size:0.9rem">
+        ⚠️ Draw.io failed to load.<br>
+        <small>Check your internet connection and reload the page.</small>
+      </div>`;
+    }
+  }, INIT_TIMEOUT_MS);
+
+})();
+</script>
+</body>
+</html>
